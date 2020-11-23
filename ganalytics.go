@@ -5,17 +5,16 @@ prometheus for scraping.
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/jwt"
 	"google.golang.org/api/analytics/v3"
 	"gopkg.in/yaml.v2"
@@ -28,12 +27,19 @@ var (
 	config    = new(conf)
 )
 
+// metricdef defines a single metric to return from the GA API
+type metricdef struct {
+	Label string  `yaml:"label"`
+	Metric string `yaml:"metric"`
+	Filter string `yaml:"filter"`
+}
+
 // conf defines configuration parameters
 type conf struct {
-	Interval int      `yaml:"interval"`
-	Metrics  []string `yaml:"metrics"`
-	ViewID   string   `yaml:"viewid"`
-	PromPort string   `yaml:"port"`
+	Interval int         `yaml:"interval"`
+	Metrics  []metricdef `yaml:"metrics"`
+	ViewID   string      `yaml:"viewid"`
+	PromPort string      `yaml:"port"`
 }
 
 func init() {
@@ -41,13 +47,13 @@ func init() {
 
 	// All metrics are registered as Prometheus Gauge
 	for _, metric := range config.Metrics {
-		promGauge[metric] = prometheus.NewGauge(prometheus.GaugeOpts{
-			Name:        fmt.Sprintf("ga_%s", strings.Replace(metric, ":", "_", 1)),
-			Help:        fmt.Sprintf("Google Analytics %s", metric),
+		promGauge[metric.Label] = prometheus.NewGauge(prometheus.GaugeOpts{
+			Name:        fmt.Sprintf("ga_%s", metric.Label),
+			Help:        fmt.Sprintf("Google Analytics %s", metric.Label),
 			ConstLabels: map[string]string{"job": "googleAnalytics"},
 		})
 
-		prometheus.MustRegister(promGauge[metric])
+		prometheus.MustRegister(promGauge[metric.Label])
 	}
 }
 
@@ -64,7 +70,7 @@ func main() {
 		// Expires:      time.Duration(1) * time.Hour, // Expire in 1 hour
 	}
 
-	httpClient := jwtc.Client(oauth2.NoContext)
+	httpClient := jwtc.Client(context.Background())
 	as, err := analytics.New(httpClient)
 	if err != nil {
 		panic(err)
@@ -88,12 +94,12 @@ func main() {
 
 	for {
 		for _, metric := range config.Metrics {
-			// Go routine per mertic
-			go func(metric string) {
+			// Go routine per metric
+			go func(metric metricdef) {
 				val := getMetric(rts, metric)
 				// Gauge value to float64
 				valf, _ := strconv.ParseFloat(val, 64)
-				promGauge[metric].Set(valf)
+				promGauge[metric.Label].Set(valf)
 			}(metric)
 		}
 		time.Sleep(time.Second * time.Duration(config.Interval))
@@ -101,8 +107,12 @@ func main() {
 }
 
 // getMetric queries GA RealTime API for a specific metric.
-func getMetric(rts *analytics.DataRealtimeService, metric string) string {
-	getc := rts.Get(config.ViewID, metric)
+func getMetric(rts *analytics.DataRealtimeService, metric metricdef) string {
+	getc := rts.Get(config.ViewID, metric.Metric)
+	if metric.Filter != "" {
+		getc = getc.Filters(metric.Filter)
+	}
+
 	m, err := getc.Do()
 	if err != nil {
 		panic(err)

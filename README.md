@@ -17,8 +17,11 @@ Obtains Google Analytics RealTime metrics, and presents them to prometheus for s
     interval: 60
     viewid: ga:123456789
     metrics:
-    - rt:pageviews
-    - rt:activeUsers
+      - label: active_users
+        metric: rt:pageviews
+      - label: active_users_mypage
+        metric: rt:activeUsers
+        filter: "rt:pagePath==/my/page/"
     ```
 1. Install dependencies, compile and run.
     ```bash
@@ -26,7 +29,7 @@ Obtains Google Analytics RealTime metrics, and presents them to prometheus for s
     ./ganalytics
     ```
 
-### ViewID for the Google Analytics
+### ViewID for Google Analytics
 
 From your Google Analytics Web UI: *Admin (Low left) ==> View Settings (far right tab, named VIEW)'*
 
@@ -38,6 +41,12 @@ From your Google Analytics Web UI: *Admin (Low left) ==> View Settings (far righ
 
 >*The email from GA API creds must be added to analytics project metrics will be obtained from.*>
 
+### Filtering
+
+You have the option of defining a comma-separated list of filters based on one or more Dimensions supported by
+the GA Realtime API. In the example config above, we're filtering the `rt:activeUsers` for a single page by path (`/my/page/`).
+You'll want to make sure your criteria only returns a single result, because the scraper will only take the first row
+from the response, so with multiple results, you may get inconsistent figures being returned over time. 
 
 ### Cross compile on a MAC
 
